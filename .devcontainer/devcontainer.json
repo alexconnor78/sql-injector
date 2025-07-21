@@ -1,0 +1,33 @@
+{
+    "name": "SQL Injection Tool Dev",
+    "build": {
+        "dockerfile": "Dockerfile",
+        "context": ".."
+    },
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "ms-python.python",
+                "ms-python.vscode-pylance",
+                "eamodio.gitlens",
+                "GitHub.copilot"
+            ],
+            "settings": {
+                "python.pythonPath": "/usr/local/bin/python",
+                "python.linting.enabled": true,
+                "python.linting.pylintEnabled": true,
+                "python.formatting.autopep8Path": "/usr/local/bin/autopep8",
+                "python.formatting.provider": "autopep8",
+                "terminal.integrated.shell.linux": "/bin/bash"
+            }
+        }
+    },
+    "mounts": [
+        "source=${localWorkspaceFolder}/src,target=/workspace/src,type=bind,consistency=cached",
+        "source=${localWorkspaceFolder}/targets,target=/workspace/targets,type=bind,consistency=cached",
+        "source=${localWorkspaceFolder}/output,target=/workspace/output,type=bind,consistency=cached"
+    ],
+    "workspaceFolder": "/workspace",
+    "postCreateCommand": "pip install -r requirements.txt",
+    "shutdownAction": "stopContainer"
+}
