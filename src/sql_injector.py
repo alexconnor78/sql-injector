@@ -3,48 +3,22 @@ import argparse
 import requests
 import json
 import time
-import os
-import readline
+import pathlib
 from datetime import datetime
 from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.common.by import By
 
 
-
-def selenium_inject_test(base_url, param, payload, wait=3):
-    options = Options()
-    options.headless = True  # Run without opening a window
-
-    driver = webdriver.Chrome(options=options)
+def check_url(url):
+    """
+    Check if the URL is valid.
+    """
     try:
-        # Construct URL with payload
-        full_url = f"{base_url}?{param}={payload}"
-        print(f"[*] Loading URL: {full_url}")
-
-        driver.get(full_url)
-        time.sleep(wait)  # Wait for JS to load data, adjust if needed
-
-        # Get full rendered HTML
-        page_source = driver.page_source
-
-        # Optionally, search for error indicators
-        lowered = page_source.lower()
-        error_signs = ["internal server error", "sql error", "database error", "exception", "warning", "stack trace"]
-
-        if any(sign in lowered for sign in error_signs):
-            print("[!] Possible error detected in page content.")
-        else:
-            print("[+] No obvious error detected.")
-
-        # Print preview of rendered HTML or specific parts
-        preview_length = 1000
-        print(f"\n[Page Source Preview, first {preview_length} chars]:\n")
-        print(page_source[:preview_length])
-
-    finally:
-        driver.quit()
+        parsed = urlparse(url)
+        if not all([parsed.scheme, parsed.netloc]):
+            raise ValueError("Invalid URL")
+        return True
+    except Exception as e:
+        return False
 
 def inject_payload(url, param, payload):
     """
@@ -53,7 +27,8 @@ def inject_payload(url, param, payload):
     try:
         start_time = time.time()
 
-        response = requests.get(url, params={param: payload})
+        response = requests.get(url, param + payload)
+        print(response.url)
 
         elapsed = time.time() - start_time
 
@@ -92,57 +67,150 @@ def inject_payload(url, param, payload):
             "error": str(e)
         }
 
-def interactive_mode(urls, param,output_file):
+def interactive_mode(urls, param,output_file, injection_type, cookie_string=None):
     """
-    Interactive loop for GET-only injection.
+    SQL Injection tool.
     """
-    print("\n" + "=" * 50)
-    print("GET Injection Interactive Console")
-    print("=" * 50)
+    print("\n" + "=" * 80 )
+    print("SQL Injection Interactive Console")
+    print("=" * 80)
     print(f"[*] Loaded {len(urls)} target URLs")
+    print(f"[*] URL to inject: {urls[0]}")
+    print(f"[*] injection type: {injection_type}")
     print(f"[*] Parameter: {param}")
     print(f"[*] Output File: {output_file}")
-    print("\nType payloads to inject (type 'exit' to quit)")
-    print("=" * 50 + "\n")
+    print(f"[*] Current Cookie: {cookie_string if cookie_string else 'None'}")
+
+    print("=" * 80 + "\n")
+    print("Options:")
+    print(f"--param <text>\t\t Change parameter to inject (default: {param})")
+    print(f"--type <1|2|3>\t\t Chnage injection type (1: GET, 2: POST, 3: Blind)")
+    print(f"--cookie <cookie>\t Set cookie string")
+    print(f"--add-url <url>\t\t Add new URL")
+    print(f"--delete-url <index>\t Delete URL at index")
+    print(f"--list-urls\t\t List all target URLs")
+    print(f"--change-url <index>\t Switch current URL ")
+    print(f"--payload <payload>\t Set payload")
+    print(f"--display\t\t Display current url & payload")
+    print(f"--run \t\t\t Run the current payload ")
+    print(f"  exit\t\t\t Exit the tool")
+    print("=" * 80 + "\n")
+
+    pending_payload = None
 
     while True:
         try:
-            payload = input("payload> ").strip()
-            if payload[:7].lower() == "--param":
-                param = payload[8:].strip()
-                print(f"[*] Parameter changed to: {param}")
-                continue
+            cmd = input("cmd> ").strip().lower()
 
-            if payload.lower() in ["exit", "quit"]:
+            if cmd in ("exit", "quit"):
                 print("[*] Exiting.")
-                break
+                break   
+            
+            elif cmd.startswith("--add-url "):
+                new_url = cmd[10:].strip()
+                if check_url(new_url):
+                    path_to_urls = pathlib.Path().resolve() / "targets" / "urls.txt"
+                    with open(f"{path_to_urls}", "a+") as f:
+                        f.write(new_url + "\n")
+                    urls.append(new_url)
+                    print(f"[*] Added new URL: {new_url}")
+                    f.close()
+                else:
+                    print("[!] Invalid URL. Please provide a valid URL.")
 
-            if not payload:
-                continue
+            elif cmd.startswith("--delete-url "):
+                try:
+                    index = int(cmd[13:]) - 1
+                    if 0 <= index < len(urls):
+                        deleted_url = urls.pop(index)
+                        print(f"[*] Deleted URL: {deleted_url}")
+                        # Update the file
+                        path_to_urls = pathlib.Path().resolve() / "targets" / "urls.txt"
+                        with open(f"{path_to_urls}", "w") as f:
+                            f.writelines("\n".join(urls) + "\n")
+                        f.close()
+                    else:
+                        print("[!] Invalid index. Please provide a valid index.")
+                except ValueError:
+                    print("[!] Invalid input. Please provide a number.")
+                
+            elif cmd == "--list-urls":
+                print("\n[*] Current URLs:")
+                for i, url in enumerate(urls):
+                    print(f"{i + 1}: {url}")
+                print("=" * 80) 
 
-            for url in urls:
-                print(f"\n[*] Sending to: {url}")
-                result = inject_payload(url, param, payload)
+            elif cmd.startswith("--display"):
+                print(f"\n[*] Current URL: {urls[0]}")
+                print(f"[*] Current Payload: {pending_payload if pending_payload else 'None'}")
+                print(f"[*] Current Parameter: {param}")
+                print(f"[*] Current Injection Type: {injection_type}")
+                print(f"[*] Current Cookie: {cookie_string if cookie_string else 'None'}")
+                print(f"[*] Constructed URL: {urls[0]}?{param}={pending_payload if pending_payload else ''}")
+                print("=" * 80)
+    
+            elif cmd.startswith("--change-url "):
+                try:
+                    index = int(cmd[13:]) - 1
+                    if 0 <= index < len(urls):
+                        print(f"[*] Changing current URL to: {urls[index]}")
+                        urls[0] = urls[index]
+                    else:
+                        print("[!] Invalid index. Please provide a valid index.")
+                except ValueError:
+                    print("[!] Invalid input. Please provide a number.")
 
-                print(f"\n[+] {result.get('method', 'N/A')} Request Sent")
-                print(f"    Payload: {result.get('payload', '')}")
-                if 'status_code' in result:
-                    print(f"    Status: {result['status_code']}")
-                    print(f"    Response Time: {result['response_time']:.2f}s")
-                    print(f"    Response Length: {result['response_length']} bytes")
-                if 'error' in result:
-                    print(f"    Error: {result['error']}")
-                print(f"    Constructed URL: {result.get('constructed_url', '')}")
+            elif cmd.startswith("--change-url "):     
+                idx = int(cmd[13:].strip()) - 1
+                if 0 <= idx < len(urls):
+                    urls.insert(0, urls.pop(idx))
+                    print(f"[*] Switched to URL: {urls[0]}")
+                else:
+                    print("[!] Invalid index.")
 
-                print("\n[Response Body Preview]")
-                print(result.get('response_body', '[No response body]'))  # show first 500 chars
-                print("-" * 50)
+            elif cmd.startswith("--cookie "):
+                cookie_str = cmd[9:].strip()
+                cookies = parse_cookies(cookie_str)
+                if cookies:
+                    print(f"[*] Cookies set: {cookies}")
+                else:
+                    print("[!] Invalid cookie format. Please use 'key=value; key2=value2' format.")
 
-                if output_file:
-                    with open(output_file, "a") as f:
-                        f.write(json.dumps(result) + "\n")
-                print("testing selenium injection...")
-                selenium_inject_test(url, param, payload)
+            elif cmd.startswith("--payload "):
+                pending_payload = cmd[10:].strip()
+                print(f"[*] Payload set: {pending_payload}")
+            
+            elif cmd.startswith("--param "):
+                param = cmd[8:].strip()
+                print(f"[*] Parameter changed to: {param}")
+
+            elif cmd.startswith("--run"):   
+                if not pending_payload:
+                    print("[!] No payload set. Use --payload <payload> to set a payload.")
+                    continue
+
+                for url in urls:
+                    print(f"\n[*] Running injection on: {url}")
+                    print(f"[*] Type: {injection_type}, Param: {param}, Payload: {pending_payload}")
+
+                    if injection_type == "get":
+                        result = inject_payload(url, param, pending_payload)
+                    elif injection_type == "post":
+                        # Add your POST handler here
+                        result = {"info": "POST injection not yet implemented"}
+                    elif injection_type == "blind":
+                        # Add your blind handler here
+                        result = {"info": "Blind injection not yet implemented"}
+                    else:
+                        result = {"error": "Unknown injection type"}
+
+                    print(json.dumps(result, indent=2))
+                    if output_file:
+                        with open(output_file, "a") as f:
+                            f.write(json.dumps(result) + "\n")
+
+                else:
+                    print("[!] Unknown command. Use --param, --type, --payload, --run, etc.")
 
         except KeyboardInterrupt:
             print("\n[!] Exiting...")
@@ -167,10 +235,14 @@ def main():
     parser = argparse.ArgumentParser(description="Interactive SQL Injection Tester")
     parser.add_argument("--url-file", "-f", required=True, 
                         help="File containing target URL (one per line)")
-    parser.add_argument("--param", "-p", required=True, 
-                        help="Parameter to inject")
+    parser.add_argument("--param", "-p", default="filter", 
+                        help="Default Parameter to inject")
     parser.add_argument("--output", "-o", required=True,
                         help="Output file for constructed requests (JSONL format)")
+    parser.add_argument("--type", "-t", default="get",
+                        help="Type of injection (get, post, blind)")    
+    parser.add_argument("--cookies", "-c", default=None,
+                        help="Cookie string to send with requests (optional)")
     
     args = parser.parse_args()
     
@@ -179,23 +251,3 @@ def main():
         with open(args.url_file, 'r') as f:
             urls = [line.strip() for line in f.readlines() if line.strip()]
     except Exception as e:
-        print(f"[!] Error reading URL file: {str(e)}")
-        return
-    
-    if not urls:
-        print("[!] No valid URLs found in file")
-        return
-    
-    # Parse cookies
-    
-    #cookies = parse_cookies(args.cookies) if args.cookies else None
-    
-    # Start interactive mode
-    interactive_mode(
-        urls=urls,
-        param=args.param,
-        output_file=args.output
-    )
-
-if __name__ == "__main__":
-    main()
